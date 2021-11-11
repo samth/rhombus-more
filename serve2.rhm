@@ -1,0 +1,176 @@
+#lang rhombus
+// Note: needs comment-out support in DrR
+// Note: we should start building up this library now
+// How do I write multiple-clause syntax-rules?
+// Parameterize is hard to do
+// a.b is unexpectedly low precedence, weird to have to f((a.b),c)
+// writing macros is really hard
+// `prefix url` should probably be `prefix: url`
+// want multiple val bindings without repeating `val`
+// how to do hash-ref with failure value?
+// how do you write quoted data?
+// need fancy-app
+// enter! at the repl works out poorly
+// how do I write symbols
+// DrRacket + errortrace + rhombus seems to have weird interaction bugs after i click on some arrows
+// hash-set! syntax doesn't work
+
+import:
+  rhombus/macro: no_prefix
+  "param.rkt"
+
+fun map(f): fun(l): r.map(f,l)
+                
+// how do i write symbols?
+fun s(v): r.#{string->symbol}(v)
+          
+expr.rule '(loop: $body ...; ...):
+  '(begin:
+      fun lp():
+        $body ...; ...
+        lp()
+      lp())
+
+expr.rule '(thunk: $body ... ; ...):
+  '(fun (): $body ... ; ...)
+
+
+expr.rule '(thread: $body ... ; ...):
+  '(r.thread(thunk: $body ... ; ...))
+
+expr.rule '(parameterize ($a, $b): $body ... ; ...):
+  '(param.parameterize_rhom($a,$b, begin: $body ...; ...))
+                 
+import:
+  racket/tcp:
+    rename:
+      #{tcp-listen} ~to listen
+      #{tcp-accept} ~to accept
+      #{tcp-close} ~to close
+  racket/base:
+    prefix r
+    rename:
+      #{regexp-match} ~to regexp_match
+      #{close-input-port} ~to close_input_port
+      #{close-output-port} ~to close_output_port
+      #{current-custodian} ~to current_custodian
+      #{custodian-shutdown-all} ~to custodian_shutdown_all
+      #{hash-ref} ~to hash_ref
+      #{hash-set!} ~to hash_set
+  xml:
+    rename:
+      #{xexpr->string} ~to to_string
+  net/url:
+    prefix url
+    rename:
+      #{string->url} ~to from_string
+      #{url-path} ~to path
+      #{url-query} ~to query
+      #{path/param-path} ~to param_path
+      
+    
+    
+
+fun close_port(p):
+ if r.#{input-port?}(p)
+ | r.close_input_port(p)
+ | r.close_output_port(p)
+
+
+fun is_port(p): r.#{input-port?}(p) || r.#{output-port?}(p)
+
+expr.rule '(when $e: $body ... ; ...):
+  '(if $e
+    | begin: $body ... ; ...
+    | r.void())
+
+ 
+annotation.macro 'Port:
+  annotation_ct.pack_predicate('is_port,
+                               '(($(dot_ct.provider_key), port_dot_provider)))
+dot.macro '(port_dot_provider $left $dot $right):
+  match right
+  // One argument functions
+  | 'display:       '(fun(arg):(r.display(arg,$left)))
+  | 'match:         '(fun(arg):(r.regexp_match(arg,$left)))
+  | 'close:         '(fun (): close_port($left))
+  | 'readline:      '(fun (): readline($left))
+
+
+fun readline(p -: Port) :: String :
+  r.#{read-line}(p)
+
+operator (a |> b): b(a)
+
+annotation.macro 'Thread:
+  annotation_ct.pack_predicate('(r.#{thread?}),
+                               '(($(dot_ct.provider_key), thread_dot_provider)))
+dot.macro '(thread_dot_provider $left $dot $right):
+  match right
+  // One argument functions
+  | 'kill: '(r.#{kill-thread}($left))
+
+annotation.macro 'Tcp:
+  annotation_ct.pack_predicate('(tcp.#{tcp-listener?}),
+                               '(($(dot_ct.provider_key), tcp_dot_provider)))
+dot.macro '(tcp_dot_provider $left $dot $right):
+  match right
+  // One argument functions
+  | 'close: '(tcp.close($left))
+  | 'accept: '(tcp.accept($left))
+
+/* ************************************************
+ *  actual code starts here
+ *
+ */
+
+fun serve(port -: Number):
+  val main_cust: r.#{make-custodian}()
+  // weird precedence here requires extra parens
+  parameterize ((r.current_custodian), main_cust):
+    val listener: tcp.listen(port, 5, #true)
+    thread:
+      loop:
+        accept_and_handle(listener)
+  thunk: r.custodian_shutdown_all(main_cust)
+
+fun accept_and_handle(listener -: Tcp):
+  val cust: r.#{make-custodian}()
+  parameterize ((r.current_custodian), cust):
+    val (in -: Port, out -: Port): tcp.accept(listener)
+    thread:
+      handle(in,out)
+      in.close(); out.close()
+  thread:
+    r.sleep(10)
+    r.custodian_shutdown_all(cust)
+
+    
+fun handle(in -: Port,out -: Port):
+  // Discard the request header (up to blank line):
+  val req: r.regexp_match(#{#rx"^GET (.+) HTTP/[0-9]+\\.[0-9]+"},r.#{read-line}(in))
+  when req:
+    in.match(#{#rx"(\r\n|^)\r\n"})
+    val xexpr: req[1] |> dispatch
+    // Send reply
+    out.display("HTTP/1.0 200 Okay\r\n")
+    out.display("Server: k\r\nContent-Type: text/html\r\n\r\n")
+    out.display(xml.to_string(xexpr))
+
+
+val dispatch_table: r.#{make-hash}()
+
+fun dispatch(strpath :: String):
+  val u: strpath |> url.from_string
+  val path: u |> url.path |> map(url.param_path)
+  val h: r.hash_ref(dispatch_table, path[0], #false) // dispatch_table[path[0]]
+  if h
+  | u |> url.query |> h
+  | [s("html"), [s("head"), [s("title"), "Error"]],
+     [s("body"),
+      [s("font"), [[s("color"), "red"]],
+       "Unknown page: ",
+       strpath]]]
+
+r.hash_set(dispatch_table, "hello", fun(query): [s("html"), [s("body"), "Hello, World"]])
+r.hash_set(dispatch_table, "rhombus", fun(query): [s("html"), [s("body"), "Rhombus is cool"]])
