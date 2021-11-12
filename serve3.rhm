@@ -19,7 +19,11 @@
 // should indexing be dict-ref?
 import:
   rhombus/macro: no_prefix
+  racket/control
   "param.rkt"
+  racket/format:
+    rename:
+      #{~a} ~to a
   racket/dict:
     rename:
       #{dict-ref} ~to ref
@@ -46,7 +50,10 @@ expr.rule '(thread: $body ... ; ...):
 
 expr.rule '(parameterize ($a, $b): $body ... ; ...):
   '(param.parameterize_rhom($a,$b, begin: $body ...; ...))
-                 
+     
+operator(a ++ b):
+  r.#{string-append}(a, b)
+  
 import:
   racket/tcp:
     rename:
@@ -63,6 +70,8 @@ import:
       #{custodian-shutdown-all} ~to custodian_shutdown_all
       #{hash-ref} ~to hash_ref
       #{hash-set!} ~to hash_set
+      #{string->number} ~to string_to_number
+      #{number->string} ~to number_to_string
   xml:
     rename:
       #{xexpr->string} ~to to_string
@@ -158,7 +167,7 @@ fun handle(in -: Port,out -: Port):
   val req: r.regexp_match(#{#rx"^GET (.+) HTTP/[0-9]+\\.[0-9]+"},r.#{read-line}(in))
   when req:
     in.match(#{#rx"(\r\n|^)\r\n"})
-    val xexpr: req[1] |> dispatch
+    val xexpr: control.prompt(req[1] |> dispatch)
     // Send reply
     out.display("HTTP/1.0 200 Okay\r\n")
     out.display("Server: k\r\nContent-Type: text/html\r\n\r\n")
@@ -198,7 +207,7 @@ fun build_req_page(label, next, hidden):
 fun many(query): build_req_page("Number of greetings:", "/reply", "")
                  
 fun reply(query):
-  val n: dict.ref(query, s number) |> r.#{string->number}
+  val n: dict.ref(query, s number) |> r.string_to_number
   [s html,
    cons(s body, r.#{build-list}(n, fun (n):" hello"))]
   
@@ -206,3 +215,41 @@ r.hash_set(dispatch_table, "hello", fun(query): [s html, [s body, "Hello, World"
 r.hash_set(dispatch_table, "rhombus", fun(query): [s html, [s body, "Rhombus is cool"]])
 r.hash_set(dispatch_table, "many", many)
 r.hash_set(dispatch_table, "reply", reply)
+
+
+// ----------------------------------------
+// Old, awkward version:
+
+fun sum(q): build_req_page("First number:", "/one", "")
+fun one(q): build_req_page("Second number:", "/two", dict.ref(q, s number))
+fun two(q):
+  val n: dict.ref(q, s hidden) |> r.string_to_number
+  val m: dict.ref(q, s number) |> r.string_to_number
+  [s html, [s body, "The sum is ", format.a(m + n)]]
+
+
+r.hash_set(dispatch_table, "sum", sum)
+r.hash_set(dispatch_table, "one", one)
+r.hash_set(dispatch_table, "two", two)
+
+
+fun send_suspend(mk):
+  r.#{call/cc}(fun(k):
+                 // why can't I indent this more left?
+                 val tag: r.format("k~a", r.#{current-inexact-milliseconds}())
+                 r.hash_set(dispatch_table, tag, k)
+                 // write | instead of |> and get a bad error message
+                 ("/" ++ tag) |> mk |> control.abort)
+
+fun get_number(label):
+  val query:
+    send_suspend(fun (kurl):
+                   build_req_page(label, kurl, ""))
+  dict.ref(query, s number) |> r.string_to_number
+
+fun sum2(q):
+  val m: get_number("First number:")
+  val n: get_number("Second number:")
+  [s html, [s body, "The sum is ", format.a(n+m)]]
+
+r.hash_set(dispatch_table, "sum2", sum2)
