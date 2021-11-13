@@ -1,11 +1,10 @@
 #lang rhombus
 // Note: needs comment-out support in DrR
-// Note: we should start building up this library now
 // How do I write multiple-clause syntax-rules?
 // Parameterize is hard to do
-// a.b is unexpectedly low precedence, weird to have to f((a.b),c)
+// a.b is unexpectedly low precedence, weird to have to f((a.b),c) // Maybe this was just my bad macro?
 // writing macros is really hard
-// `prefix url` should probably be `prefix: url`
+// should `prefix url` be `prefix: url`
 // want multiple val bindings without repeating `val`
 // how to do hash-ref with failure value?
 // how do you write quoted data?
@@ -14,60 +13,14 @@
 // DrRacket + errortrace + rhombus seems to have weird interaction bugs after i click on some arrows
 // for macros?
 // syntax for cons
-// should indexing be dict-ref?
 // why can't I indent function bodies more left?
 // prefixes mean it matters a lot more what things are exported from where (eg is string->number in racket/string)
-// hard to figure out how to move the big collection of prefixed imports into a library (see prefixes.rhm for a failed attempt)
+
 import:
   rhombus/macro: no_prefix
   "library.rhm": no_prefix
-
-import:
+  "prefixes.rhm": no_prefix
   racket/control
-  racket/list:
-    prefix l
-  racket/base:
-    prefix string
-    rename:
-      #{string->number} ~to to_number
-  racket/format:
-    rename:
-      #{~a} ~to a
-  racket/dict:
-    rename:
-      #{dict-ref} ~to ref
-  racket/base:
-    prefix custodian
-    rename:
-      #{current-custodian} ~to current
-      #{custodian-shutdown-all} ~to shutdown
-      #{make-custodian} ~to make
-      #{custodian-limit-memory} ~to limit_memory
-
-  
-import:
-  racket/tcp:
-    rename:
-      #{tcp-listen} ~to listen
-      #{tcp-accept} ~to accept
-      #{tcp-close} ~to close
-  racket/base:
-    prefix r
-    rename:
-      #{call/cc} ~to callcc
-      #{regexp-match} ~to regexp_match
-      #{make-hash} ~to make_hash
-      #{current-inexact-milliseconds} ~to current_inexact_milliseconds
-  xml:
-    rename:
-      #{xexpr->string} ~to to_string
-  net/url:
-    prefix url
-    rename:
-      #{string->url} ~to from_string
-      #{url-path} ~to path
-      #{url-query} ~to query
-      #{path/param-path} ~to param_path
 
 
 /* ************************************************
@@ -110,7 +63,7 @@ fun handle(in -: Port,out -: Port):
     out.display(xml.to_string(xexpr))
 
 
-val dispatch_table: r.make_hash()
+val dispatch_table :: Map: r.make_hash()
 
 fun dispatch(strpath :: String):
   val u: strpath |> url.from_string
@@ -142,13 +95,13 @@ fun build_req_page(label, next, hidden):
 
 fun many(query): build_req_page("Number of greetings:", "/reply", "")
                  
-fun reply(query):
-  val n: dict.ref(query, s number) |> string.to_number
+fun reply(query :: Alist):
+  val n: query.ref(s number) |> string.to_number
   [s html,
    cons(s body, r.map(fun (n):" hello", l.range(n)))]
   
-dispatch_table["hello"] = fun(query): [s html, [s body, "Hello, World"]]
-dispatch_table["rhombus"] = fun(query): [s html, [s body, "Rhombus is cool"]]
+dispatch_table["hello"] = fun(query :: Alist): [s html, [s body, "Hello, World"]]
+dispatch_table["rhombus"] = fun(query :: Alist): [s html, [s body, "Rhombus is cool"]]
 dispatch_table["many"] = many
 dispatch_table["reply"] = reply
 
@@ -157,10 +110,10 @@ dispatch_table["reply"] = reply
 // Old, awkward version:
 
 fun sum(q): build_req_page("First number:", "/one", "")
-fun one(q): build_req_page("Second number:", "/two", dict.ref(q, s number))
-fun two(q):
-  val n: dict.ref(q, s hidden) |> string.to_number
-  val m: dict.ref(q, s number) |> string.to_number
+fun one(q :: Alist): build_req_page("Second number:", "/two", q.ref(s number))
+fun two(q :: Alist):
+  val n: q.ref(s hidden) |> string.to_number
+  val m: q.ref(s number) |> string.to_number
   [s html, [s body, "The sum is ", format.a(m + n)]]
 
 
@@ -179,8 +132,8 @@ fun send_suspend(mk):
     ("/" ++ tag) |> mk |> control.abort
 
 fun get_number(label):
-  val query: send_suspend(fun (kurl): build_req_page(label, kurl, ""))
-  dict.ref(query, s number) |> string.to_number
+  val query :: Alist : send_suspend(fun (kurl): build_req_page(label, kurl, ""))
+  query.ref(s number) |> string.to_number
 
 // New direct version
 

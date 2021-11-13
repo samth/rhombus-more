@@ -145,6 +145,15 @@ dot.macro '(custodian_dot_provider $left $dot $right):
   | 'shutdown: '(fun(): (custodian.shutdown($left)))
 
 
+annotation.macro 'Alist:
+  annotation_ct.pack_predicate('(r.#{list?}),
+                               '(($(dot_ct.provider_key), alist_dot_provider)))
+dot.macro '(alist_dot_provider $left $dot $right):
+  match right
+  // One argument functions
+  | 'ref:  '(fun(arg): (dict.ref($left, arg)))
+
+
 
 export:
   |>
@@ -160,7 +169,9 @@ export:
   parameterize
   thunk
   thread
-  
+  Alist
+  when
+  alist_dot_provider
   map
   loop
   s
