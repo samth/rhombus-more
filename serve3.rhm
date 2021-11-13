@@ -15,6 +15,7 @@
 // syntax for cons
 // why can't I indent function bodies more left?
 // prefixes mean it matters a lot more what things are exported from where (eg is string->number in racket/string)
+// How to annotate imports with static info?
 
 import:
   rhombus/macro: no_prefix

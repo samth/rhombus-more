@@ -4,27 +4,13 @@ import:
   rhombus/macro: no_prefix
   racket/control
   "param.rkt"
-  racket/list:
-    prefix l
-  racket/base:
-    prefix string
-    rename:
-      #{string->number} ~to to_number
-  racket/format:
-    rename:
-      #{~a} ~to a
-  racket/dict:
-    rename:
-      #{dict-ref} ~to ref
-  racket/base:
-    prefix custodian
-    rename:
-      #{current-custodian} ~to current
-      #{custodian-shutdown-all} ~to shutdown
-      #{make-custodian} ~to make
-      #{custodian-limit-memory} ~to limit_memory
+  "prefixes.rhm": no_prefix
+
+// A curried map to use with pipelines. Not needed with fancy-app.
 
 fun map(f): fun(l): r.map(f,l)
+
+// General purpose macros
 
 expr.rule '(letcc $k: $body ...; ...):
   '(r.callcc(fun($k): $body ...; ...))
@@ -49,45 +35,26 @@ expr.rule '(thread: $body ... ; ...):
 
 expr.rule '(parameterize ($a ..., $b ...): $body ... ; ...):
   '(param.parameterize_rhom($a ...,$b ..., begin: $body ...; ...))
-     
+
+expr.rule '(when $e: $body ... ; ...):
+  '(if $e
+    | begin: $body ... ; ...
+    | r.void())
+
+// Useful operators
+
+  
 operator(a ++ b):
   r.#{string-append}(a, b)
-  
-import:
-  racket/tcp:
-    rename:
-      #{tcp-listen} ~to listen
-      #{tcp-accept} ~to accept
-      #{tcp-close} ~to close
-  racket/base:
-    prefix r
-    rename:
-      #{call/cc} ~to callcc
-      #{regexp-match} ~to regexp_match
-      #{close-input-port} ~to close_input_port
-      #{close-output-port} ~to close_output_port
-      #{current-custodian} ~to current_custodian
-      #{custodian-shutdown-all} ~to custodian_shutdown_all
-      #{hash-ref} ~to hash_ref
-      #{hash-set!} ~to hash_set
-      #{string->number} ~to string_to_number
-      #{number->string} ~to number_to_string
-      #{make-hash} ~to make_hash
-      #{current-inexact-milliseconds} ~to current_inexact_milliseconds
-  xml:
-    rename:
-      #{xexpr->string} ~to to_string
-  net/url:
-    prefix url
-    rename:
-      #{string->url} ~to from_string
-      #{url-path} ~to path
-      #{url-query} ~to query
-      #{path/param-path} ~to param_path
-      
-    
-    
 
+operator (a |> b): b(a)
+
+
+/*
+ Dot providers
+ */
+
+  
 fun close_port(p):
  if r.#{input-port?}(p)
  | r.close_input_port(p)
@@ -96,10 +63,6 @@ fun close_port(p):
 
 fun is_port(p): r.#{input-port?}(p) || r.#{output-port?}(p)
 
-expr.rule '(when $e: $body ... ; ...):
-  '(if $e
-    | begin: $body ... ; ...
-    | r.void())
 
  
 annotation.macro 'Port:
@@ -115,7 +78,6 @@ dot.macro '(port_dot_provider $left $dot $right):
   | 'readline:      '(fun (): r.#{read-line}($left))
 
 
-operator (a |> b): b(a)
 
 annotation.macro 'Thread:
   annotation_ct.pack_predicate('(r.#{thread?}),
