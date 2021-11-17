@@ -2,18 +2,14 @@
 
 import:
   rhombus/macro: no_prefix
-  racket/control
-  "param.rkt"
-  "prefixes.rhm": no_prefix
+  racket/base: prefix r
 
 // A curried map to use with pipelines. Not needed with fancy-app.
-
-fun map(f): fun(l): r.map(f,l)
 
 // General purpose macros
 
 expr.rule '(letcc $k: $body ...; ...):
-  '(r.callcc(fun($k): $body ...; ...))
+  '(r.#{call/cc}(fun($k): $body ...; ...))
                 
 // how do i write symbols?
 expr.rule '(s $id):
@@ -30,12 +26,6 @@ expr.rule '(thunk: $body ... ; ...):
   '(fun (): $body ... ; ...)
 
 
-expr.rule '(thread: $body ... ; ...):
-  '(r.thread(thunk: $body ... ; ...))
-
-expr.rule '(parameterize ($a ..., $b ...): $body ... ; ...):
-  '(param.parameterize_rhom($a ...,$b ..., begin: $body ...; ...))
-
 expr.rule '(when $e: $body ... ; ...):
   '(if $e
     | begin: $body ... ; ...
@@ -43,10 +33,7 @@ expr.rule '(when $e: $body ... ; ...):
 
 // Useful operators
 
-  
-operator(a ++ b):
-  r.#{string-append}(a, b)
-
+ 
 operator (a |> b): b(a)
 
 
@@ -54,89 +41,13 @@ operator (a |> b): b(a)
  Dot providers
  */
 
-  
-fun close_port(p):
- if r.#{input-port?}(p)
- | r.close_input_port(p)
- | r.close_output_port(p)
-
-
-fun is_port(p): r.#{input-port?}(p) || r.#{output-port?}(p)
-
-
- 
-annotation.macro 'Port:
-  annotation_ct.pack_predicate('is_port,
-                               '(($(dot_ct.provider_key), port_dot_provider)))
-dot.macro '(port_dot_provider $left $dot $right):
-  match right
-  // One argument functions
-  | 'display:       '(fun(arg):(r.display(arg,$left)))
-  | 'match:         '(fun(arg):(r.regexp_match(arg,$left)))
-  | 'close:         '(fun (): close_port($left))
-  // this one doesn't work for some reason
-  | 'readline:      '(fun (): r.#{read-line}($left))
-
-
-
-annotation.macro 'Thread:
-  annotation_ct.pack_predicate('(r.#{thread?}),
-                               '(($(dot_ct.provider_key), thread_dot_provider)))
-dot.macro '(thread_dot_provider $left $dot $right):
-  match right
-  // One argument functions
-  | 'kill: '(r.#{kill-thread}($left))
-
-annotation.macro 'Tcp:
-  annotation_ct.pack_predicate('(tcp.#{tcp-listener?}),
-                               '(($(dot_ct.provider_key), tcp_dot_provider)))
-dot.macro '(tcp_dot_provider $left $dot $right):
-  match right
-  // One argument functions
-  | 'close:  '(fun(): (tcp.close($left)))
-  | 'accept: '(fun(): (tcp.accept($left)))
-
-
-annotation.macro 'Custodian:
-  annotation_ct.pack_predicate('(r.#{custodian?}),
-                               '(($(dot_ct.provider_key), custodian_dot_provider)))
-dot.macro '(custodian_dot_provider $left $dot $right):
-  match right
-  // One argument functions
-  | 'limit_memory:  '(fun(arg): (custodian.limit_memory($left, arg)))
-  | 'shutdown: '(fun(): (custodian.shutdown($left)))
-
-
-annotation.macro 'Alist:
-  annotation_ct.pack_predicate('(r.#{list?}),
-                               '(($(dot_ct.provider_key), alist_dot_provider)))
-dot.macro '(alist_dot_provider $left $dot $right):
-  match right
-  // One argument functions
-  | 'ref:  '(fun(arg): (dict.ref($left, arg)))
-
 
 
 export:
   |>
-  Custodian
-  custodian_dot_provider
-  Tcp
-  tcp_dot_provider
-  Thread
-  thread_dot_provider
-  Port
-  port_dot_provider
   when
-  parameterize
   thunk
-  thread
-  Alist
-  when
-  alist_dot_provider
-  map
   loop
   s
-  ++
   letcc
   

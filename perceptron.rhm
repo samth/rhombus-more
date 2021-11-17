@@ -153,7 +153,9 @@ fun // would be nice to have one declaration of the type
 | perceptron_key(env, " "): perceptron_step(env)
 | perceptron_key(env, _):   env
 
-
+if "x"
+| 2
+|  3
 
 
 big_bang(myenv,

@@ -2,7 +2,8 @@
 (require test-engine/racket-tests
          2htdp/image
          racket/local
-         racket/math)
+         racket/math
+         (for-syntax rhombus/macro))
 
 (provide (all-defined-out))
 
@@ -147,4 +148,26 @@
 (require 2htdp/universe)
 (define-syntax-rule (big_bang a b c d e)
   (big-bang a [b c] [d e]))
+
+(define-syntax rhombus-if
+  (expression-transformer
+   #'rhombus-if
+   (lambda (stx)
+     (syntax-parse stx
+       #:datum-literals (alts)
+       [(form-id test ... (alts alt ...)
+                 . tail)
+        (syntax-parse #'(alt ...)
+          #:datum-literals (block)
+          [(((~and tag-thn block) thn ...)
+            ((~and tag-els block) els ...))
+           (values
+            #'(if (rhombus-expression (group test ...))
+                  (rhombus-body-at tag-thn thn ...)
+                  (rhombus-body-at tag-els els ...))
+            #'tail)]
+          [_
+           (raise-syntax-error #f
+                               "expected two alternatives"
+                               stx)])]))))
 

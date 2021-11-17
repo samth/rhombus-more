@@ -19,9 +19,29 @@
 
 import:
   rhombus/macro: no_prefix
+  rhombus/compat/parameterize: no_prefix
+  rhombus/compat/custodian: no_prefix
+  rhombus/compat/tcp: no_prefix
+  rhombus/compat/thread: no_prefix
+  rhombus/compat/port: no_prefix
+  rhombus/compat/dict: no_prefix
+  rhombus/compat/url: no_prefix
+  rhombus/compat/string: no_prefix
+  rhombus/compat/format: no_prefix
+  rhombus/compat/xml: no_prefix
   "library.rhm": no_prefix
-  "prefixes.rhm": no_prefix
   racket/control
+
+  racket/list: prefix l
+  
+  racket/base:
+    prefix r
+    rename:
+      #{regexp-match} ~to regexp_match
+      #{make-hash} ~to make_hash
+      #{current-inexact-milliseconds} ~to current_inexact_milliseconds
+
+fun map(f): fun(l): r.map(f,l)
 
 
 /* ************************************************
@@ -29,10 +49,11 @@ import:
  *
  */
 
+
 fun serve(port -: Number):
   val main_cust :: Custodian: custodian.make()
   // weird precedence here requires extra parens
-  parameterize (custodian.current, main_cust):
+  parameterize (custodian.current: main_cust):
     val listener: tcp.listen(port, 5, #true)
     thread:
       loop:
@@ -42,7 +63,7 @@ fun serve(port -: Number):
 fun accept_and_handle(listener -: Tcp):
   val cust :: Custodian: custodian.make()
   cust.limit_memory(50 * 1024 * 1024)
-  parameterize (custodian.current, cust):
+  parameterize (custodian.current: cust):
     val (in -: Port, out -: Port): listener.accept()
     thread:
       handle(in,out)
@@ -96,13 +117,13 @@ fun build_req_page(label, next, hidden):
 
 fun many(query): build_req_page("Number of greetings:", "/reply", "")
                  
-fun reply(query :: Alist):
+fun reply(query :: Dict):
   val n: query.ref(s number) |> string.to_number
   [s html,
    cons(s body, r.map(fun (n):" hello", l.range(n)))]
   
-dispatch_table["hello"] = fun(query :: Alist): [s html, [s body, "Hello, World"]]
-dispatch_table["rhombus"] = fun(query :: Alist): [s html, [s body, "Rhombus is cool"]]
+dispatch_table["hello"] = fun(query :: Dict): [s html, [s body, "Hello, World"]]
+dispatch_table["rhombus"] = fun(query :: Dict): [s html, [s body, "Rhombus is cool"]]
 dispatch_table["many"] = many
 dispatch_table["reply"] = reply
 
@@ -111,8 +132,8 @@ dispatch_table["reply"] = reply
 // Old, awkward version:
 
 fun sum(q): build_req_page("First number:", "/one", "")
-fun one(q :: Alist): build_req_page("Second number:", "/two", q.ref(s number))
-fun two(q :: Alist):
+fun one(q :: Dict): build_req_page("Second number:", "/two", q.ref(s number))
+fun two(q :: Dict):
   val n: q.ref(s hidden) |> string.to_number
   val m: q.ref(s number) |> string.to_number
   [s html, [s body, "The sum is ", format.a(m + n)]]
@@ -133,7 +154,7 @@ fun send_suspend(mk):
     ("/" ++ tag) |> mk |> control.abort
 
 fun get_number(label):
-  val query :: Alist : send_suspend(fun (kurl): build_req_page(label, kurl, ""))
+  val query :: Dict : send_suspend(fun (kurl): build_req_page(label, kurl, ""))
   query.ref(s number) |> string.to_number
 
 // New direct version
