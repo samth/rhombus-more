@@ -1,167 +1,168 @@
 #lang rhombus
-// Note: needs comment-out support in DrR
-// How do I write multiple-clause syntax-rules?
-// Parameterize is hard to do
-// a.b is unexpectedly low precedence, weird to have to f((a.b),c) // Maybe this was just my bad macro?
-// writing macros is really hard
-// should `prefix url` be `prefix: url`
-// want multiple val bindings without repeating `val`
+
+// this corresponds to step 6 in "More"
+
+// let should work at the repl
+// the mutable string situation is bad
 // how to do hash-ref with failure value?
-// how do you write quoted data?
 // need fancy-app
 // enter! at the repl works out poorly
 // DrRacket + errortrace + rhombus seems to have weird interaction bugs after i click on some arrows
-// for macros?
-// syntax for cons
-// why can't I indent function bodies more left?
-// prefixes mean it matters a lot more what things are exported from where (eg is string->number in racket/string)
-// How to annotate imports with static info?
+// syntax for cons?
+// should indexing be dict-ref?
+// how do I write `for List` on one line?
 
 import:
-  rhombus/macro: no_prefix
-  rhombus/compat/parameterize: no_prefix
-  rhombus/compat/custodian: no_prefix
-  rhombus/compat/tcp: no_prefix
-  rhombus/compat/thread: no_prefix
-  rhombus/compat/port: no_prefix
-  rhombus/compat/dict: no_prefix
-  rhombus/compat/url: no_prefix
-  rhombus/compat/string: no_prefix
-  rhombus/compat/format: no_prefix
-  rhombus/compat/xml: no_prefix
-  "library.rhm": no_prefix
-  racket/control
-
-  racket/list: prefix l
-  
-  racket/base:
-    prefix r
+  rhombus/meta open
+  rhombus/compat/port open
+  rhombus/compat/thread open
+  rhombus/compat/custodian as C
+  rhombus/compat/tcp as T 
+  rhombus/compat/function open
+  rhombus/compat/url
+  rhombus/compat/format
+ 
+import:
+  lib("racket/control.rkt") as control
+  lib("racket/base.rkt") as r: // for sleep()
     rename:
-      #{regexp-match} ~to regexp_match
-      #{make-hash} ~to make_hash
-      #{current-inexact-milliseconds} ~to current_inexact_milliseconds
+      #{regexp-match} as regexp_match
+      #{hash-ref} as hash_ref
+      #{current-inexact-milliseconds} as current_inexact_milliseconds
+  
+import:
+  lib("racket/dict.rkt") as dict
+  lib("xml/main.rkt") as xml:
+    rename:
+      #{xexpr->string} as to_string
+      
+    
+    
+operator (a |> b): b(a)
 
-fun map(f): fun(l): r.map(f,l)
 
+macro 'letcc $k: $body':
+  '(r.#{call/cc}(fun($k): $body))'
 
 /* ************************************************
  *  actual code starts here
  *
  */
 
-
-fun serve(port -: Number):
-  val main_cust :: Custodian: custodian.make()
-  // weird precedence here requires extra parens
-  parameterize (custodian.current: main_cust):
-    val listener: tcp.listen(port, 5, #true)
+fun serve(port):
+  let main_cust :: C.Custodian = C.make()
+  parameterize {C.current: main_cust}:
+    let listener: T.listen(port, 5, #true)
     thread:
       loop:
         accept_and_handle(listener)
   thunk: main_cust.shutdown()
 
-fun accept_and_handle(listener -: Tcp):
-  val cust :: Custodian: custodian.make()
+fun accept_and_handle(listener :: T.TcpListener):
+  let cust :: C.Custodian = C.make()
   cust.limit_memory(50 * 1024 * 1024)
-  parameterize (custodian.current: cust):
-    val (in -: Port, out -: Port): listener.accept()
-    thread:
-      handle(in,out)
-      in.close(); out.close()
+  parameterize {C.current: cust}:
+    let (in :: Port, out :: Port) = listener.accept()
+    handle(in, out)
+    in.close(); out.close()
+    
   thread:
     r.sleep(10)
     cust.shutdown()
 
     
-fun handle(in -: Port,out -: Port):
-  // Discard the request header (up to blank line):
-  val req: r.regexp_match(#{#rx"^GET (.+) HTTP/[0-9]+\\.[0-9]+"}, in.readline())
-  when req:
+fun handle(in :: InputPort,out :: OutputPort):
+  let s = in.readline()
+  print(s)
+  // Match the first line to extract the request:
+  let req = r.regexp_match(#{#rx"^GET (.+) HTTP/[0-9]+\\.[0-9]+"}, s)
+  println(req)
+  when req
+  | // Discard the request header (up to blank line)  
     in.match(#{#rx"(\r\n|^)\r\n"})
-    val xexpr: control.prompt(req[1] |> dispatch)
+    let xexpr: control.prompt(req[1] |> dispatch)
     // Send reply
     out.display("HTTP/1.0 200 Okay\r\n")
     out.display("Server: k\r\nContent-Type: text/html\r\n\r\n")
     out.display(xml.to_string(xexpr))
 
 
-val dispatch_table :: Map: r.make_hash()
+def dispatch_table: MutableMap()
 
-fun dispatch(strpath :: String):
-  val u: strpath |> url.from_string
-  val path: u |> url.path |> map(url.param_path)
-  val h: dict.ref(dispatch_table, path[0], #false) // dispatch_table[path[0]]
+fun dispatch(strpath :: StringView):
+  let u = strpath |> url.from_string
+  def [p, ...]: u |> url.path
+  def path: [url.param_path(p), ...]
+  def h: r.hash_ref(dispatch_table, to_string(path[0]), #false)
   if h
   | u |> url.query |> h
-  | [s html, [s head, [s title, "Error"]],
-     [s body,
-      [s font, [[s color, "red"]],
+  | [#'html, [#'head, [#'title, "Error"]],
+     [#'body,
+      [#'font, [[#'color, "red"]],
        "Unknown page: ",
        strpath]]]
 
 
 
 fun build_req_page(label, next, hidden):
-  [s html,
-   [s head, [s title, "Enter a Number to Add"]],
-   [s body, [[s bgcolor, "white"]],
-    [s form, [[s action ,next], [s method, "get"]],
+  [#'html,
+   [#'head, [#'title, "Enter a Number to Add"]],
+   [#'body, [[#'bgcolor, "white"]],
+    [#'form, [[#'action ,next], [#'method, "get"]],
      label,
-     [s input, [[s type, "text"], [s name, "number"],
-                [s value, ""]]],
-     [s input, [[s type, "hidden"], [s name, "hidden"],
-                [s value ,hidden]]],
-     [s input, [[s type, "submit"], [s name, "enter"],
-                [s value, "Enter"]]]]]]
+     [#'input, [[#'type, "text"], [#'name, "number"],
+                [#'value, ""]]],
+     [#'input, [[#'type, "hidden"], [#'name, "hidden"], 
+                [#'value ,hidden]]],
+     [#'input, [[#'type, "submit"], [#'name, "enter"],
+                [#'value, "Enter"]]]]]]
 
 
 fun many(query): build_req_page("Number of greetings:", "/reply", "")
                  
-fun reply(query :: Dict):
-  val n: query.ref(s number) |> string.to_number
-  [s html,
-   cons(s body, r.map(fun (n):" hello", l.range(n)))]
-  
-dispatch_table["hello"] = fun(query :: Dict): [s html, [s body, "Hello, World"]]
-dispatch_table["rhombus"] = fun(query :: Dict): [s html, [s body, "Rhombus is cool"]]
-dispatch_table["many"] = many
-dispatch_table["reply"] = reply
+fun reply(query :: Map.of(Symbol, Maybe(String))):
+  let n: query[#'number] |> String.to_number
+  [#'html,
+   List.cons(#'body, for List: each i: 0..n
+                               " hello")]
 
+dispatch_table["hello"] := fun(query): [#'html, [#'body, "Hello, World"]]
+dispatch_table["rhombus"] := fun(query): [#'html, [#'body, "Rhombus is cool"]]
+dispatch_table["many"] := many
+dispatch_table["reply"] := reply
 
-// ----------------------------------------
-// Old, awkward version:
 
 fun sum(q): build_req_page("First number:", "/one", "")
-fun one(q :: Dict): build_req_page("Second number:", "/two", q.ref(s number))
-fun two(q :: Dict):
-  val n: q.ref(s hidden) |> string.to_number
-  val m: q.ref(s number) |> string.to_number
-  [s html, [s body, "The sum is ", format.a(m + n)]]
+fun one(q :: Map): build_req_page("Second number:", "/two", q[#'number])
+fun two(q :: Map):
+  let n: q[#'hidden] |> String.to_number
+  let m: q[#'number] |> String.to_number
+  [#'html, [#'body, "The sum is ", format.a(m + n)]]
 
 
-dispatch_table["sum"] = sum
-dispatch_table["one"] = one
-dispatch_table["two"] = two
+dispatch_table["sum"] := sum
+dispatch_table["one"] := one
+dispatch_table["two"] := two
 
 
 // helpers for continuation version
 
 fun send_suspend(mk):
   letcc k:
-    val tag: r.format("k~a", r.current_inexact_milliseconds())
-    dispatch_table[tag] = k
-    // write | instead of |> and get a bad error message
+    let tag: r.format("k~a", r.current_inexact_milliseconds())
+    dispatch_table[tag] := k
     ("/" ++ tag) |> mk |> control.abort
 
 fun get_number(label):
-  val query :: Dict : send_suspend(fun (kurl): build_req_page(label, kurl, ""))
-  query.ref(s number) |> string.to_number
+  let query :: Map = send_suspend(fun (n): build_req_page(label, n, ""))
+  query[#'number] |> String.to_number
 
 // New direct version
 
 fun sum2(q):
-  val m: get_number("First number:")
-  val n: get_number("Second number:")
-  [s html, [s body, "The sum is ", format.a(n+m)]]
+  let m: get_number("First number:")
+  let n: get_number("Second number:")
+  [#'html, [#'body, "The sum is ", format.a(n+m)]]
 
-dispatch_table["sum2"] = sum2
+dispatch_table["sum2"] := sum2
+
