@@ -1,113 +1,56 @@
 #lang rhombus
 // Note: needs comment-out support in DrR
-// Note: we should start building up this library now
-// How do I write multiple-clause syntax-rules?
-// Parameterize is hard to do
-// a.b is unexpectedly low precedence, weird to have to f((a.b),c)
+// add sleep, time stuff to rhombus/base
+// wrapping racket with dot providers ends up with suprising static-but-not-dynamic results
+// error messages print with #{'v}
+// need annotations on results of C.make() and tcp-accept but I don't know how to do this easily
+// add loop & thunk to rhombus/function
+// 
 import:
-  rhombus/macro: no_prefix
-  "param.rkt"
+  rhombus/meta open
+  rhombus/compat/port open
+  rhombus/compat/thread open
+  rhombus/compat/custodian as C
+  rhombus/compat/tcp as T
+  rhombus/compat/function open
 
-expr.rule '(loop: $body ...; ...):
-  '(begin:
-      fun lp():
-        $body ...; ...
-        lp()
-      lp())
-
-expr.rule '(thunk: $body ... ; ...):
-  '(fun (): $body ... ; ...)
-
-
-expr.rule '(thread: $body ... ; ...):
-  '(r.thread(thunk: $body ... ; ...))
-
-expr.rule '(parameterize ($a, $b): $body ... ; ...):
-  '(param.parameterize_rhom($a,$b, begin: $body ...; ...))
-                 
 import:
-  racket/tcp:
-    rename:
-      #{tcp-listen} ~to listen
-      #{tcp-accept} ~to accept
-      #{tcp-close} ~to close
-  racket/base:
-    prefix r
-    rename:
-      #{regexp-match} ~to regexp_match
-      #{close-input-port} ~to close_input_port
-      #{close-output-port} ~to close_output_port
-      #{current-custodian} ~to current_custodian
-      #{custodian-shutdown-all} ~to custodian_shutdown_all
-
-fun close_port(p):
- if r.#{input-port?}(p)
- | r.close_input_port(p)
- | r.close_output_port(p)
+  lib("racket/base.rkt") as r // for sleep()
 
 
-fun is_port(p): r.#{input-port?}(p) || r.#{output-port?}(p)
- 
-annotation.macro 'Port:
-  annotation_ct.pack_predicate('is_port,
-                               '(($(dot_ct.provider_key), port_dot_provider)))
-dot.macro '(port_dot_provider $left $dot $right):
-  match right
-  // One argument functions
-  | 'display:       '(fun(arg):(r.display(arg,$left)))
-  | 'match:         '(fun(arg):(r.regexp_match(arg,$left)))
-  | 'close:         '(fun(): close_port($left))
-
-
-annotation.macro 'Thread:
-  annotation_ct.pack_predicate('(r.#{thread?}),
-                               '(($(dot_ct.provider_key), thread_dot_provider)))
-dot.macro '(thread_dot_provider $left $dot $right):
-  match right
-  // One argument functions
-  | 'kill: '(r.#{kill-thread}($left))
-
-annotation.macro 'Tcp:
-  annotation_ct.pack_predicate('(tcp.#{tcp-listener?}),
-                               '(($(dot_ct.provider_key), tcp_dot_provider)))
-dot.macro '(tcp_dot_provider $left $dot $right):
-  match right
-  // One argument functions
-  | 'close: '(tcp.close($left))
-  | 'accept: '(tcp.accept($left))
-
+  
 /* ************************************************
  *  actual code starts here
  *
  */
 
 fun serve(port):
-  //val cust: r.#{make-custodian}()
-  // weird precedence here
-  //parameterize ((r.current_custodian), cust):
-    val listener: tcp.listen(port, 5, #true)
-    //thread:
-    loop:
-      accept_and_handle(listener)
-  //thunk: r.custodian_shutdown_all(cust)
+  let main_cust :: C.Custodian = C.make()
+  parameterize {C.current: main_cust}:
+    let listener: T.listen(port, 5, #true)
+    thread:
+      loop:
+        accept_and_handle(listener)
+  thunk: main_cust.shutdown()
 
-fun accept_and_handle(listener :: Tcp):
-  //val cust: r.#{make-custodian}
-  // weird precedence here
-  //parameterize ((r.current_custodian), cust):
-    r.#{call-with-values}(fun (): tcp.accept(listener), fun (in :: Port,out :: Port):
-                                                          handle(in,out)
-                                                          in.close(); out.close())
-  //thread:
-   // r.sleep(10)
-    //r.custodian_shutdown_all(cust)
+fun accept_and_handle(listener :: T.TcpListener):
+  let cust :: C.Custodian = C.make()
+ 
+  parameterize {C.current: cust}:
+    let (in :: Port, out :: Port) = listener.accept()
+    handle(in, out)
+    in.close(); out.close()
+    
+  thread:
+    r.sleep(10)
+    cust.shutdown()
 
     
-fun handle(in -: Port,out -: Port):
+fun handle(in :: InputPort, out :: OutputPort):
   // Discard the request header (up to blank line):
   in.match(#{#rx"(\r\n|^)\r\n"})
   // Send reply
   out.display("HTTP/1.0 200 Okay\r\n")
   out.display("Server: k\r\nContent-Type: text/html\r\n\r\n")
-  out.display("<html><body>Hello, world!</body></html>")
- 
+  out.display(r.format("<html><body>Hello, world! ~a</body></html>", r.#{current-seconds}()))
+  

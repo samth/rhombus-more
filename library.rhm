@@ -11,9 +11,6 @@ import:
 expr.rule '(letcc $k: $body ...; ...):
   '(r.#{call/cc}(fun($k): $body ...; ...))
                 
-// how do i write symbols?
-expr.rule '(s $id):
-  '(symbol($id))
   
 expr.rule '(loop: $body ...; ...):
   '(begin:
@@ -42,12 +39,4 @@ operator (a |> b): b(a)
  */
 
 
-
-export:
-  |>
-  when
-  thunk
-  loop
-  s
-  letcc
   
