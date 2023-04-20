@@ -1,208 +1,125 @@
 #lang rhombus
-// Note: needs comment-out support in DrR
-// Note: we should start building up this library now
-// How do I write multiple-clause syntax-rules?
-// Parameterize is hard to do
-// a.b is unexpectedly low precedence, weird to have to f((a.b),c)
-// writing macros is really hard
-// `prefix url` should probably be `prefix: url`
-// want multiple val bindings without repeating `val`
+
+// this corresponds to step 6 in "More"
+
+// let should work at the repl
+// the mutable string situation is bad
 // how to do hash-ref with failure value?
-// how do you write quoted data?
 // need fancy-app
 // enter! at the repl works out poorly
-// how do I write symbols
 // DrRacket + errortrace + rhombus seems to have weird interaction bugs after i click on some arrows
-// hash-set! syntax doesn't work
-// for macros?
-// syntax for cons
+// syntax for cons?
 // should indexing be dict-ref?
-import:
-  rhombus/macro: no_prefix
-  "param.rkt"
-  racket/dict:
-    rename:
-      #{dict-ref} ~to ref
+// how do I write `for List` on one line?
 
-fun map(f): fun(l): r.map(f,l)
-                
-// how do i write symbols?
-expr.rule '(s $id):
-  '(symbol($id))
+import:
+  rhombus/meta open
+  rhombus/compat/port open
+  rhombus/compat/thread open
+  rhombus/compat/custodian as C
+  rhombus/compat/tcp as T 
+  rhombus/compat/function open
+  rhombus/compat/url
+ 
+import:
+  lib("racket/base.rkt") as r: // for sleep()
+    rename:
+      #{regexp-match} as regexp_match
+      #{hash-ref} as hash_ref
   
-expr.rule '(loop: $body ...; ...):
-  '(begin:
-      fun lp():
-        $body ...; ...
-        lp()
-      lp())
-
-expr.rule '(thunk: $body ... ; ...):
-  '(fun (): $body ... ; ...)
-
-
-expr.rule '(thread: $body ... ; ...):
-  '(r.thread(thunk: $body ... ; ...))
-
-expr.rule '(parameterize ($a, $b): $body ... ; ...):
-  '(param.parameterize_rhom($a,$b, begin: $body ...; ...))
-                 
 import:
-  racket/tcp:
+  lib("racket/dict.rkt") as dict
+  lib("xml/main.rkt") as xml:
     rename:
-      #{tcp-listen} ~to listen
-      #{tcp-accept} ~to accept
-      #{tcp-close} ~to close
-  racket/base:
-    prefix r
-    rename:
-      #{regexp-match} ~to regexp_match
-      #{close-input-port} ~to close_input_port
-      #{close-output-port} ~to close_output_port
-      #{current-custodian} ~to current_custodian
-      #{custodian-shutdown-all} ~to custodian_shutdown_all
-      #{hash-ref} ~to hash_ref
-      #{hash-set!} ~to hash_set
-  xml:
-    rename:
-      #{xexpr->string} ~to to_string
-  net/url:
-    prefix url
-    rename:
-      #{string->url} ~to from_string
-      #{url-path} ~to path
-      #{url-query} ~to query
-      #{path/param-path} ~to param_path
+      #{xexpr->string} as to_string
       
     
     
-
-fun close_port(p):
- if r.#{input-port?}(p)
- | r.close_input_port(p)
- | r.close_output_port(p)
-
-
-fun is_port(p): r.#{input-port?}(p) || r.#{output-port?}(p)
-
-expr.rule '(when $e: $body ... ; ...):
-  '(if $e
-    | begin: $body ... ; ...
-    | r.void())
-
- 
-annotation.macro 'Port:
-  annotation_ct.pack_predicate('is_port,
-                               '(($(dot_ct.provider_key), port_dot_provider)))
-dot.macro '(port_dot_provider $left $dot $right):
-  match right
-  // One argument functions
-  | 'display:       '(fun(arg):(r.display(arg,$left)))
-  | 'match:         '(fun(arg):(r.regexp_match(arg,$left)))
-  | 'close:         '(fun (): close_port($left))
-  | 'readline:      '(fun (): readline($left))
-
-
-fun readline(p -: Port) :: String :
-  r.#{read-line}(p)
-
 operator (a |> b): b(a)
-
-annotation.macro 'Thread:
-  annotation_ct.pack_predicate('(r.#{thread?}),
-                               '(($(dot_ct.provider_key), thread_dot_provider)))
-dot.macro '(thread_dot_provider $left $dot $right):
-  match right
-  // One argument functions
-  | 'kill: '(r.#{kill-thread}($left))
-
-annotation.macro 'Tcp:
-  annotation_ct.pack_predicate('(tcp.#{tcp-listener?}),
-                               '(($(dot_ct.provider_key), tcp_dot_provider)))
-dot.macro '(tcp_dot_provider $left $dot $right):
-  match right
-  // One argument functions
-  | 'close: '(tcp.close($left))
-  | 'accept: '(tcp.accept($left))
 
 /* ************************************************
  *  actual code starts here
  *
  */
 
-fun serve(port -: Number):
-  val main_cust: r.#{make-custodian}()
-  // weird precedence here requires extra parens
-  parameterize ((r.current_custodian), main_cust):
-    val listener: tcp.listen(port, 5, #true)
+fun serve(port):
+  let main_cust :: C.Custodian = C.make()
+  parameterize {C.current: main_cust}:
+    let listener: T.listen(port, 5, #true)
     thread:
       loop:
         accept_and_handle(listener)
-  thunk: r.custodian_shutdown_all(main_cust)
+  thunk: main_cust.shutdown()
 
-fun accept_and_handle(listener -: Tcp):
-  val cust: r.#{make-custodian}()
-  r.#{custodian-limit-memory}(cust, 50 * 1024 * 1024)
-  parameterize ((r.current_custodian), cust):
-    val (in -: Port, out -: Port): tcp.accept(listener)
-    thread:
-      handle(in,out)
-      in.close(); out.close()
+fun accept_and_handle(listener :: T.TcpListener):
+  let cust :: C.Custodian = C.make()
+ 
+  parameterize {C.current: cust}:
+    let (in :: Port, out :: Port) = listener.accept()
+    handle(in, out)
+    in.close(); out.close()
+    
   thread:
     r.sleep(10)
-    r.custodian_shutdown_all(cust)
+    cust.shutdown()
 
     
-fun handle(in -: Port,out -: Port):
-  // Discard the request header (up to blank line):
-  val req: r.regexp_match(#{#rx"^GET (.+) HTTP/[0-9]+\\.[0-9]+"},r.#{read-line}(in))
-  when req:
+fun handle(in :: InputPort,out :: OutputPort):
+  let s = in.readline()
+  print(s)
+  // Match the first line to extract the request:
+  let req = r.regexp_match(#{#rx"^GET (.+) HTTP/[0-9]+\\.[0-9]+"}, s)
+  println(req)
+  when req
+  | // Discard the request header (up to blank line)  
     in.match(#{#rx"(\r\n|^)\r\n"})
-    val xexpr: req[1] |> dispatch
+    let xexpr: req[1] |> dispatch
     // Send reply
     out.display("HTTP/1.0 200 Okay\r\n")
     out.display("Server: k\r\nContent-Type: text/html\r\n\r\n")
     out.display(xml.to_string(xexpr))
 
 
-val dispatch_table: r.#{make-hash}()
+def dispatch_table: MutableMap()
 
-fun dispatch(strpath :: String):
-  val u: strpath |> url.from_string
-  val path: u |> url.path |> map(url.param_path)
-  val h: r.hash_ref(dispatch_table, path[0], #false) // dispatch_table[path[0]]
+fun dispatch(strpath :: StringView):
+  let u = strpath |> url.from_string
+  def [p, ...]: u |> url.path
+  def path: [url.param_path(p), ...]
+  def h: r.hash_ref(dispatch_table, to_string(path[0]), #false)
   if h
   | u |> url.query |> h
-  | [s html, [s head, [s title, "Error"]],
-     [s body,
-      [s font, [[s color, "red"]],
+  | [#'html, [#'head, [#'title, "Error"]],
+     [#'body,
+      [#'font, [[#'color, "red"]],
        "Unknown page: ",
        strpath]]]
 
 
 
 fun build_req_page(label, next, hidden):
-  [s html,
-   [s head, [s title, "Enter a Number to Add"]],
-   [s body, [[s bgcolor, "white"]],
-    [s form, [[s action ,next], [s method, "get"]],
+  [#'html,
+   [#'head, [#'title, "Enter a Number to Add"]],
+   [#'body, [[#'bgcolor, "white"]],
+    [#'form, [[#'action ,next], [#'method, "get"]],
      label,
-     [s input, [[s type, "text"], [s name, "number"],
-                [s value, ""]]],
-     [s input, [[s type, "hidden"], [s name, "hidden"],
-                [s value ,hidden]]],
-     [s input, [[s type, "submit"], [s name, "enter"],
-                [s value, "Enter"]]]]]]
+     [#'input, [[#'type, "text"], [#'name, "number"],
+                [#'value, ""]]],
+     [#'input, [[#'type, "hidden"], [#'name, "hidden"], 
+                [#'value ,hidden]]],
+     [#'input, [[#'type, "submit"], [#'name, "enter"],
+                [#'value, "Enter"]]]]]]
 
 
 fun many(query): build_req_page("Number of greetings:", "/reply", "")
                  
-fun reply(query):
-  val n: dict.ref(query, s number) |> r.#{string->number}
-  [s html,
-   cons(s body, r.#{build-list}(n, fun (n):" hello"))]
-  
-r.hash_set(dispatch_table, "hello", fun(query): [s html, [s body, "Hello, World"]])
-r.hash_set(dispatch_table, "rhombus", fun(query): [s html, [s body, "Rhombus is cool"]])
-r.hash_set(dispatch_table, "many", many)
-r.hash_set(dispatch_table, "reply", reply)
+fun reply(query :: Map.of(Symbol, Maybe(String))):
+  let n: query[#'number] |> String.to_number
+  [#'html,
+   List.cons(#'body, for List: each i: 0..n
+                               " hello")]
+
+dispatch_table["hello"] := fun(query): [#'html, [#'body, "Hello, World"]]
+dispatch_table["rhombus"] := fun(query): [#'html, [#'body, "Rhombus is cool"]]
+dispatch_table["many"] := many
+dispatch_table["reply"] := reply
