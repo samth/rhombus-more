@@ -4,28 +4,21 @@
 // wrapping racket with dot providers ends up with suprising static-but-not-dynamic results
 // error messages print with #{'v}
 // need annotations on results of C.make() and tcp-accept but I don't know how to do this easily
-// add loop & thunk to rhombus/function
 // 
 import:
-  rhombus/meta open
   rhombus/compat/port open
   rhombus/compat/thread open
   rhombus/compat/custodian as C
   rhombus/compat/tcp as T
   rhombus/compat/function open
 
+use_static
+
 import:
   lib("racket/base.rkt") as r // for sleep()
 
-
-  
-/* ************************************************
- *  actual code starts here
- *
- */
-
 fun serve(port):
-  let main_cust :: C.Custodian = C.make()
+  let main_cust = C.make()
   parameterize {C.current: main_cust}:
     let listener: T.listen(port, 5, #true)
     thread:
@@ -33,11 +26,11 @@ fun serve(port):
         accept_and_handle(listener)
   thunk: main_cust.shutdown()
 
-fun accept_and_handle(listener :: T.TcpListener):
-  let cust :: C.Custodian = C.make()
+fun accept_and_handle(listener :: T.Listener):
+  let cust = C.make()
  
   parameterize {C.current: cust}:
-    let (in :: Port, out :: Port) = listener.accept()
+    let (in, out) = listener.accept()
     handle(in, out)
     in.close(); out.close()
     
@@ -53,4 +46,3 @@ fun handle(in :: InputPort, out :: OutputPort):
   out.display("HTTP/1.0 200 Okay\r\n")
   out.display("Server: k\r\nContent-Type: text/html\r\n\r\n")
   out.display(r.format("<html><body>Hello, world! ~a</body></html>", r.#{current-seconds}()))
-  
