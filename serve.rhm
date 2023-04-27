@@ -1,41 +1,31 @@
 #lang rhombus
-// Note: needs comment-out support in DrR
-// add sleep, time stuff to rhombus/base
-// wrapping racket with dot providers ends up with suprising static-but-not-dynamic results
-// error messages print with #{'v}
-// need annotations on results of C.make() and tcp-accept but I don't know how to do this easily
-// 
 import:
   rhombus/compat/port open
   rhombus/compat/thread open
-  rhombus/compat/custodian as C
-  rhombus/compat/tcp as T
+  rhombus/compat/custodian as Cust
+  rhombus/compat/tcp as TCP
   rhombus/compat/function open
-
-use_static
-
-import:
-  lib("racket/base.rkt") as r // for sleep()
+  rhombus/compat/time as Time
 
 fun serve(port):
-  let main_cust = C.make()
-  parameterize {C.current: main_cust}:
-    let listener: T.listen(port, 5, #true)
+  let main_cust = Cust.make()
+  parameterize {Cust.current: main_cust}:
+    let listener: TCP.listen(port, 5, #true)
     thread:
       loop:
         accept_and_handle(listener)
   thunk: main_cust.shutdown()
 
-fun accept_and_handle(listener :: T.Listener):
-  let cust = C.make()
+fun accept_and_handle(listener :: TCP.Listener):
+  let cust = Cust.make()
  
-  parameterize {C.current: cust}:
+  parameterize {Cust.current: cust}:
     let (in, out) = listener.accept()
     handle(in, out)
     in.close(); out.close()
     
   thread:
-    r.sleep(10)
+    Time.sleep(10)
     cust.shutdown()
 
     
@@ -45,4 +35,4 @@ fun handle(in :: InputPort, out :: OutputPort):
   // Send reply
   out.display("HTTP/1.0 200 Okay\r\n")
   out.display("Server: k\r\nContent-Type: text/html\r\n\r\n")
-  out.display(r.format("<html><body>Hello, world! ~a</body></html>", r.#{current-seconds}()))
+  out.display("<html><body>Hello, world! "++ to_string(Time.now()) ++ "</body></html>")
