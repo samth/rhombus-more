@@ -2,74 +2,59 @@
 
 // this corresponds to step 6 in "More"
 
-// let should work at the repl
-// the mutable string situation is bad
-// how to do hash-ref with failure value?
-// need fancy-app
-// enter! at the repl works out poorly
-// DrRacket + errortrace + rhombus seems to have weird interaction bugs after i click on some arrows
-// syntax for cons?
-// should indexing be dict-ref?
-// how do I write `for List` on one line?
-
 import:
   rhombus/meta open
   rhombus/compat/port open
   rhombus/compat/thread open
-  rhombus/compat/custodian as C
-  rhombus/compat/tcp as T 
+  rhombus/compat/custodian as Cust
+  rhombus/compat/tcp as TCP
   rhombus/compat/function open
+  rhombus/compat/time as Time
   rhombus/compat/url
  
 import:
-  lib("racket/base.rkt") as r: // for sleep()
+  lib("racket/base.rkt") as r:
     rename:
       #{regexp-match} as regexp_match
       #{hash-ref} as hash_ref
   
 import:
-  lib("racket/dict.rkt") as dict
   lib("xml/main.rkt") as xml:
     rename:
       #{xexpr->string} as to_string
       
     
     
-operator (a |> b): b(a)
-
 /* ************************************************
  *  actual code starts here
  *
  */
 
 fun serve(port):
-  let main_cust :: C.Custodian = C.make()
-  parameterize {C.current: main_cust}:
-    let listener: T.listen(port, 5, #true)
+  let main_cust = Cust.make()
+  parameterize {Cust.current: main_cust}:
+    let listener: TCP.listen(port, 5, #true)
     thread:
       loop:
         accept_and_handle(listener)
   thunk: main_cust.shutdown()
 
-fun accept_and_handle(listener :: T.TcpListener):
-  let cust :: C.Custodian = C.make()
+fun accept_and_handle(listener :: TCP.Listener):
+  let cust = Cust.make()
  
-  parameterize {C.current: cust}:
+  parameterize {Cust.current: cust}:
     let (in :: Port, out :: Port) = listener.accept()
     handle(in, out)
     in.close(); out.close()
     
   thread:
-    r.sleep(10)
+    Time.sleep(10)
     cust.shutdown()
 
     
 fun handle(in :: InputPort,out :: OutputPort):
-  let s = in.readline()
-  print(s)
   // Match the first line to extract the request:
-  let req = r.regexp_match(#{#rx"^GET (.+) HTTP/[0-9]+\\.[0-9]+"}, s)
-  println(req)
+  let req = r.regexp_match(#{#rx"^GET (.+) HTTP/[0-9]+\\.[0-9]+"}, in.readline())
   when req
   | // Discard the request header (up to blank line)  
     in.match(#{#rx"(\r\n|^)\r\n"})
@@ -82,7 +67,7 @@ fun handle(in :: InputPort,out :: OutputPort):
 
 def dispatch_table: MutableMap()
 
-fun dispatch(strpath :: StringView):
+fun dispatch(strpath):
   let u = strpath |> url.from_string
   def [p, ...]: u |> url.path
   def path: [url.param_path(p), ...]

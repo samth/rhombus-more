@@ -1,73 +1,58 @@
 #lang rhombus
 
-// this corresponds to step 6 in "More"
-
-// let should work at the repl
-// the mutable string situation is bad
-// how to do hash-ref with failure value?
-// need fancy-app
-// enter! at the repl works out poorly
-// DrRacket + errortrace + rhombus seems to have weird interaction bugs after i click on some arrows
-// syntax for cons?
-// should indexing be dict-ref?
-// how do I write `for List` on one line?
+// this corresponds to step 8 in "More"
 
 import:
   rhombus/meta open
   rhombus/compat/port open
   rhombus/compat/thread open
-  rhombus/compat/custodian as C
-  rhombus/compat/tcp as T 
+  rhombus/compat/custodian as Cust
+  rhombus/compat/tcp as TCP
+  rhombus/compat/time as Time
   rhombus/compat/function open
   rhombus/compat/url
+  rhombus/compat/extra open
   rhombus/compat/format
  
 import:
   lib("racket/control.rkt") as control
-  lib("racket/base.rkt") as r: // for sleep()
+  lib("racket/base.rkt") as r:
     rename:
       #{regexp-match} as regexp_match
       #{hash-ref} as hash_ref
       #{current-inexact-milliseconds} as current_inexact_milliseconds
   
 import:
-  lib("racket/dict.rkt") as dict
   lib("xml/main.rkt") as xml:
     rename:
       #{xexpr->string} as to_string
       
     
     
-operator (a |> b): b(a)
-
-
-macro 'letcc $k: $body':
-  '(r.#{call/cc}(fun($k): $body))'
-
 /* ************************************************
  *  actual code starts here
  *
  */
 
 fun serve(port):
-  let main_cust :: C.Custodian = C.make()
-  parameterize {C.current: main_cust}:
-    let listener: T.listen(port, 5, #true)
+  let main_cust = Cust.make()
+  parameterize {Cust.current: main_cust}:
+    let listener: TCP.listen(port, 5, #true)
     thread:
       loop:
         accept_and_handle(listener)
   thunk: main_cust.shutdown()
 
-fun accept_and_handle(listener :: T.TcpListener):
-  let cust :: C.Custodian = C.make()
+fun accept_and_handle(listener :: TCP.Listener):
+  let cust = Cust.make()
   cust.limit_memory(50 * 1024 * 1024)
-  parameterize {C.current: cust}:
-    let (in :: Port, out :: Port) = listener.accept()
+  parameterize {Cust.current: cust}:
+    let (in, out) = listener.accept()
     handle(in, out)
     in.close(); out.close()
     
   thread:
-    r.sleep(10)
+    Time.sleep(10)
     cust.shutdown()
 
     
@@ -149,7 +134,7 @@ dispatch_table["two"] := two
 
 fun send_suspend(mk):
   letcc k:
-    let tag: r.format("k~a", r.current_inexact_milliseconds())
+    let tag: r.format("k~a", Time.now_inexact())
     dispatch_table[tag] := k
     ("/" ++ tag) |> mk |> control.abort
 
