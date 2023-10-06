@@ -16,7 +16,6 @@ import:
   lib("racket/base.rkt") as r:
     rename:
       #{regexp-match} as regexp_match
-      #{hash-ref} as hash_ref
   
 import:
   lib("xml/main.rkt") as xml:
@@ -71,7 +70,7 @@ fun dispatch(strpath):
   let u = strpath |> url.from_string
   def [p, ...]: u |> url.path
   def path: [url.param_path(p), ...]
-  def h: r.hash_ref(dispatch_table, to_string(path[0]), #false)
+  def h: dispatch_table.ref(to_string(path[0]), #false)
   if h
   | u |> url.query |> h
   | [#'html, [#'head, [#'title, "Error"]],
@@ -98,7 +97,7 @@ fun build_req_page(label, next, hidden):
 
 fun many(query): build_req_page("Number of greetings:", "/reply", "")
                  
-fun reply(query :: Map.of(Symbol, Maybe(String))):
+fun reply(query :: Map.of(Symbol, maybe(String))):
   let n: query[#'number] |> String.to_number
   [#'html,
    List.cons(#'body, for List: each i: 0..n
